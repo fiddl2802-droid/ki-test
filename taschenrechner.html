@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Taschenrechner</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: #1e1e1e;
+      color: #f0f0f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .calculator {
+      width: 340px;
+      background: #252526;
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+    .display {
+      background: #1e1e1e;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      text-align: right;
+    }
+    .history {
+      font-size: 14px;
+      color: #a0a0a0;
+      min-height: 22px;
+      overflow-x: auto;
+      word-break: break-all;
+    }
+    .result {
+      font-size: 36px;
+      font-weight: bold;
+      margin-top: 8px;
+      word-break: break-all;
+    }
+    .buttons {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 18px;
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.08s ease, box-shadow 0.15s ease;
+    }
+    button:hover { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); }
+    button:active { transform: scale(0.96); }
+    button.operator { background: #ff9500; color: #fff; }
+    button.operator:hover { background: #e08500; }
+    button.function { background: #3a3a3a; color: #d0d0d0; }
+    button.function:hover { background: #4a4a4a; }
+    button.equals { background: #3a3a3a; color: #fff; grid-column: span 2; }
+    button.equals:hover { background: #4a4a4a; }
+    button.number { background: #323233; color: #f0f0f0; }
+    button.number:hover { background: #3a3a3a; }
+  </style>
+</head>
+<body>
+  <div class="calculator">
+    <div class="display">
+      <div class="history" id="history"></div>
+      <div class="result" id="result">0</div>
+    </div>
+    <div class="buttons">
+      <button class="function" onclick="clearAll()">C</button>
+      <button class="function" onclick="backspace()">⌫</button>
+      <button class="function" onclick="appendPercent()">%</button>
+      <button class="operator" onclick="appendOperator('/')">÷</button>
+
+      <button class="number" onclick="appendNumber(7)">7</button>
+      <button class="number" onclick="appendNumber(8)">8</button>
+      <button class="number" onclick="appendNumber(9)">9</button>
+      <button class="operator" onclick="appendOperator('*')">×</button>
+
+      <button class="number" onclick="appendNumber(4)">4</button>
+      <button class="number" onclick="appendNumber(5)">5</button>
+      <button class="number" onclick="appendNumber(6)">6</button>
+      <button class="operator" onclick="appendOperator('-')">−</button>
+
+      <button class="number" onclick="appendNumber(1)">1</button>
+      <button class="number" onclick="appendNumber(2)">2</button>
+      <button class="number" onclick="appendNumber(3)">3</button>
+      <button class="operator" onclick="appendOperator('+')">+</button>
+
+      <button class="number" onclick="appendNumber(0)" style="grid-column: span 2;">0</button>
+      <button class="number" onclick="appendDot()">.</button>
+      <button class="equals" onclick="calculate()">=</button>
+    </div>
+  </div>
+
+  <script>
+    let currentInput = "0";
+    let previousInput = "";
+    let operation = null;
+    let shouldReset = false;
+
+    const resultEl = document.getElementById("result");
+    const historyEl = document.getElementById("history");
+
+    function updateDisplay() {
+      resultEl.textContent = currentInput;
+      if (operation && previousInput) {
+        historyEl.textContent = `${previousInput} ${operation} ${currentInput}`;
+      } else if (operation) {
+        historyEl.textContent = `${previousInput} ${operation}`;
+      } else {
+        historyEl.textContent = "";
+      }
+    }
+
+    function appendNumber(num) {
+      if (currentInput === "0" || shouldReset) {
+        currentInput = String(num);
+        shouldReset = false;
+      } else {
+        currentInput += num;
+      }
+      updateDisplay();
+    }
+
+    function appendDot() {
+      if (shouldReset) {
+        currentInput = "0";
+        shouldReset = false;
+      }
+      if (!currentInput.includes(".")) {
+        currentInput += ".";
+      }
+      updateDisplay();
+    }
+
+    function appendOperator(op) {
+      if (operation && !shouldReset) {
+        calculate();
+      }
+      previousInput = currentInput;
+      operation = op;
+      shouldReset = true;
+      updateDisplay();
+    }
+
+    function calculate() {
+      if (!operation || shouldReset) return;
+      const a = parseFloat(previousInput);
+      const b = parseFloat(currentInput);
+      let res = 0;
+
+      switch (operation) {
+        case "+": res = a + b; break;
+        case "-": res = a - b; break;
+        case "*": res = a * b; break;
+        case "/":
+          if (b === 0) {
+            res = "Fehler";
+          } else {
+            res = a / b;
+          }
+          break;
+        default: return;
+      }
+
+      if (typeof res === "number") {
+        res = Math.round(res * 1e12) / 1e12;
+        currentInput = String(res);
+      } else {
+        currentInput = res;
+      }
+
+      operation = null;
+      previousInput = "";
+      shouldReset = true;
+      updateDisplay();
+    }
+
+    function clearAll() {
+      currentInput = "0";
+      previousInput = "";
+      operation = null;
+      shouldReset = false;
+      updateDisplay();
+    }
+
+    function backspace() {
+      if (currentInput.length === 1) {
+        currentInput = "0";
+      } else {
+        currentInput = currentInput.slice(0, -1);
+      }
+      updateDisplay();
+    }
+
+    function appendPercent() {
+      if (currentInput === "0") return;
+      const val = parseFloat(currentInput) / 100;
+      currentInput = String(Math.round(val * 1e12) / 1e12);
+      updateDisplay();
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key >= "0" && e.key <= "9") appendNumber(e.key);
+      else if (e.key === ".") appendDot();
+      else if (e.key === "+") appendOperator("+");
+      else if (e.key === "-") appendOperator("-");
+      else if (e.key === "*") appendOperator("*");
+      else if (e.key === "/") { e.preventDefault(); appendOperator("/"); }
+      else if (e.key === "Enter" || e.key === "=") calculate();
+      else if (e.key === "Escape") clearAll();
+      else if (e.key === "Backspace") backspace();
+    });
+
+    updateDisplay();
+  </script>
+</body>
+</html>
