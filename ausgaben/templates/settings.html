@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Einstellungen{% endblock %}
+{% block content %}
+<h1>Einstellungen</h1>
+
+<div class="grid two">
+  <div class="card">
+    <h2>Regeln</h2>
+    <p class="muted">Enthält Empfänger oder Verwendungszweck den Suchtext, wird die Buchung
+       automatisch dieser Kategorie zugeordnet. Manuell gesetzte Kategorien werden nie überschrieben.
+       Regeln für Einnahme-Kategorien gelten nur für Eingänge, Regeln für Ausgabe-Kategorien nur für Abgänge.</p>
+    <form method="post" action="{{ url_for('add_rule') }}" class="row">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input name="pattern" placeholder="Suchtext, z. B. REWE" required>
+      <select name="category_id" required>
+        {% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+      </select>
+      <button>Regel anlegen</button>
+    </form>
+    <form method="post" action="{{ url_for('run_rules') }}" class="row">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <button class="ghost">Regeln jetzt auf unkategorisierte Buchungen anwenden</button>
+    </form>
+    <div class="scroll"><table>
+      <tr><th>Suchtext</th><th>Kategorie</th><th></th></tr>
+      {% for r in rules %}
+      <tr>
+        <td>{{ r.pattern }}</td><td>{{ r.category }}</td>
+        <td class="num">
+          <form method="post" action="{{ url_for('delete_rule', rule_id=r.id) }}" class="inline">
+            <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+            <button class="ghost">Löschen</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h2>Kategorien</h2>
+    <p class="muted"><b>Umbuchung</b> eignet sich für Überweisungen zwischen eigenen Konten:
+       Sie zählen weder als Einnahme noch als Ausgabe.</p>
+    <form method="post" action="{{ url_for('add_category') }}" class="row">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input name="name" placeholder="Name" required>
+      <select name="kind">
+        <option value="expense">Ausgabe</option>
+        <option value="income">Einnahme</option>
+        <option value="transfer">Umbuchung</option>
+      </select>
+      <input type="color" name="color" value="#64748b" title="Farbe">
+      <button>Anlegen</button>
+    </form>
+    <div class="scroll"><table>
+      <tr><th>Name</th><th>Art</th><th></th></tr>
+      {% for c in categories %}
+      <tr>
+        <td><span class="dot" style="background:{{ c.color }}"></span>{{ c.name }}</td>
+        <td>{{ {'income': 'Einnahme', 'expense': 'Ausgabe', 'transfer': 'Umbuchung'}[c.kind] }}</td>
+        <td class="num">
+          <form method="post" action="{{ url_for('delete_category', cat_id=c.id) }}" class="inline">
+            <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+            <button class="ghost">Löschen</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table></div>
+  </div>
+</div>
+{% endblock %}

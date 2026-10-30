@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Buchungen{% endblock %}
+{% block content %}
+<h1>Buchungen <span class="muted" style="font-size:1rem">({{ total }})</span></h1>
+
+<form method="get" class="row">
+  <input type="search" name="q" value="{{ q }}" placeholder="Suchen (Empfänger, Zweck)">
+  <select name="cat" onchange="this.form.submit()">
+    <option value="">Alle Kategorien</option>
+    <option value="none" {{ 'selected' if cat == 'none' }}>Unkategorisiert</option>
+    {% for c in categories %}
+      <option value="{{ c.id }}" {{ 'selected' if cat == c.id | string }}>{{ c.name }}</option>
+    {% endfor %}
+  </select>
+  <button>Filtern</button>
+</form>
+
+<div class="card scroll">
+  <table>
+    <tr><th>Datum</th><th>Empfänger / Zweck</th><th>Kategorie</th><th class="num">Betrag</th></tr>
+    {% for t in rows %}
+    <tr>
+      <td>{{ t.booking_date | datum }}</td>
+      <td>{{ t.payee or '–' }}<div class="purpose">{{ t.purpose }}</div></td>
+      <td>
+        <form method="post" action="{{ url_for('set_category', tx_id=t.id) }}">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <select name="category_id" onchange="this.form.submit()">
+            <option value="">– unkategorisiert –</option>
+            {% for c in categories %}
+              <option value="{{ c.id }}" {{ 'selected' if t.category_id == c.id }}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </form>
+      </td>
+      <td class="num {{ 'good' if t.amount_cents > 0 else '' }}">{{ t.amount_cents | eur }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="muted">Keine Buchungen gefunden.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+{% if pages > 1 %}
+<div class="row" style="margin-top:1rem">
+  {% if page > 1 %}
+    <a href="{{ url_for('transactions', q=q, cat=cat, page=page - 1) }}">← Zurück</a>
+  {% endif %}
+  <span class="muted">Seite {{ page }} von {{ pages }}</span>
+  {% if page < pages %}
+    <a href="{{ url_for('transactions', q=q, cat=cat, page=page + 1) }}">Weiter →</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

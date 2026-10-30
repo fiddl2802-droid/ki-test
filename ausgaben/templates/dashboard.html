@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Auswertung{% endblock %}
+{% block content %}
+<form method="get" class="row">
+  <h1 style="margin:0 auto 0 0">Auswertung</h1>
+  <select name="period" onchange="this.form.submit()">
+    <option value="last12" {{ 'selected' if period == 'last12' }}>Letzte 12 Monate</option>
+    {% for y in years %}
+      <option value="{{ y }}" {{ 'selected' if period == y }}>Jahr {{ y }}</option>
+    {% endfor %}
+  </select>
+</form>
+
+{% if not has_data %}
+  <div class="card">
+    <p>Für diesen Zeitraum gibt es noch keine Buchungen.
+       <a href="{{ url_for('import_csv') }}">Jetzt einen Kontoauszug importieren</a>.</p>
+  </div>
+{% else %}
+<div class="grid kpis">
+  <div class="card kpi"><small>Einnahmen</small><b class="good">{{ summary.income | eur }}</b></div>
+  <div class="card kpi"><small>Ausgaben</small><b class="bad">{{ summary.expense | eur }}</b></div>
+  <div class="card kpi"><small>Saldo</small>
+    <b class="{{ 'good' if summary.saldo >= 0 else 'bad' }}">{{ summary.saldo | eur }}</b></div>
+  <div class="card kpi"><small>Sparquote</small>
+    <b>{{ ('%.1f' | format(summary.savings_rate) | replace('.', ',') ~ ' %') if summary.savings_rate is not none else '–' }}</b></div>
+  <div class="card kpi"><small>Ø Ausgaben / Monat</small><b>{{ summary.avg_expense | eur }}</b></div>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>Einnahmen und Ausgaben pro Monat</h2>
+  <div class="chart-box"><canvas id="monthly"></canvas></div>
+</div>
+
+<div class="grid two">
+  <div class="card">
+    <h2>Ausgaben nach Kategorie</h2>
+    <div class="chart-box"><canvas id="categories"></canvas></div>
+  </div>
+  <div class="card">
+    <h2>Größte Empfänger</h2>
+    <div class="chart-box"><canvas id="payees"></canvas></div>
+  </div>
+</div>
+
+<div class="grid two">
+  <div class="card">
+    <h2>Ausgaben je Kategorie</h2>
+    <div class="scroll"><table>
+      <tr><th>Kategorie</th><th class="num">Summe</th><th class="num">Ø / Monat</th><th class="num">Anteil</th></tr>
+      {% for c in expense_cats %}
+      <tr>
+        <td><span class="dot" style="background:{{ c.color }}"></span>{{ c.name }}</td>
+        <td class="num">{{ c.total | eur }}</td>
+        <td class="num">{{ c.avg | eur }}</td>
+        <td class="num">{{ ('%.1f' | format(c.share)) | replace('.', ',') }} %</td>
+      </tr>
+      {% endfor %}
+    </table></div>
+  </div>
+  <div class="card">
+    <h2>Einnahmen je Kategorie</h2>
+    <div class="scroll"><table>
+      <tr><th>Kategorie</th><th class="num">Summe</th></tr>
+      {% for c in income_cats %}
+      <tr>
+        <td><span class="dot" style="background:{{ c.color }}"></span>{{ c.name }}</td>
+        <td class="num">{{ c.total | eur }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="2" class="muted">Keine Einnahmen im Zeitraum.</td></tr>
+      {% endfor %}
+    </table></div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='chart.umd.min.js') }}"></script>
+<script>
+  const data = {{ chart | tojson }};
+  const css = getComputedStyle(document.documentElement);
+  const text = css.getPropertyValue('--muted').trim();
+  const line = css.getPropertyValue('--line').trim();
+  Chart.defaults.color = text;
+  Chart.defaults.borderColor = line;
+  Chart.defaults.maintainAspectRatio = false;
+  const eur = v => v.toLocaleString('de-DE', {style: 'currency', currency: 'EUR'});
+  const money = {callbacks: {label: c => `${c.dataset.label || c.label}: ${eur(c.parsed.y ?? c.parsed.x ?? c.parsed)}`}};
+
+  new Chart(document.getElementById('monthly'), {
+    data: {
+      labels: data.labels,
+      datasets: [
+        {type: 'bar', label: 'Einnahmen', data: data.income, backgroundColor: '#16a34a'},
+        {type: 'bar', label: 'Ausgaben', data: data.expense, backgroundColor: '#dc2626'},
+        {type: 'line', label: 'Saldo', data: data.saldo, borderColor: '#2563eb',
+         backgroundColor: '#2563eb', tension: .25},
+      ],
+    },
+    options: {scales: {y: {ticks: {callback: v => eur(v)}}}, plugins: {tooltip: money}},
+  });
+
+  new Chart(document.getElementById('categories'), {
+    type: 'doughnut',
+    data: {labels: data.categories.labels, datasets: [{
+      data: data.categories.values, backgroundColor: data.categories.colors, borderWidth: 0}]},
+    options: {plugins: {legend: {position: 'right'},
+      tooltip: {callbacks: {label: c => `${c.label}: ${eur(c.parsed)}`}}}},
+  });
+
+  new Chart(document.getElementById('payees'), {
+    type: 'bar',
+    data: {labels: data.payees.labels, datasets: [{
+      label: 'Ausgaben', data: data.payees.values, backgroundColor: '#2563eb'}]},
+    options: {indexAxis: 'y', plugins: {legend: {display: false},
+      tooltip: {callbacks: {label: c => eur(c.parsed.x)}}},
+      scales: {x: {ticks: {callback: v => eur(v)}}}},
+  });
+</script>
+{% endif %}
+{% endblock %}
