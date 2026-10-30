@@ -1,14 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Anmelden{% endblock %}
+{% block title %}Konto wählen{% endblock %}
 {% block content %}
 <div class="card" style="max-width: 360px; margin: 3rem auto;">
-  <h1>Anmelden</h1>
-  <form method="post">
+  <h1>Konto wählen</h1>
+  <form method="post" style="display: grid; gap: .6rem;">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-    <div class="row">
-      <input type="password" name="password" placeholder="Passwort" autofocus required style="flex:1">
-      <button>Anmelden</button>
-    </div>
+    {% for key, konto in auswahl.items() %}
+    <button name="konto" value="{{ key }}">{{ konto['name'] }}</button>
+    {% endfor %}
   </form>
+  <p class="muted" style="margin-bottom:0">Oben links lässt sich später zwischen den Konten umschalten.</p>
 </div>
 {% endblock %}

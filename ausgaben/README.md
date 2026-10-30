@@ -14,13 +14,11 @@ python3 -m venv .venv
 ## Starten
 
 ```bash
-APP_PASSWORD='dein-passwort' .venv/bin/flask --app app run --host 0.0.0.0 --port 8000
+.venv/bin/flask --app app run --host 0.0.0.0 --port 8000
 ```
 
-Danach ist die App im Heimnetz unter `http://<IP-der-VM>:8000` erreichbar.
-
-- `APP_PASSWORD` ist optional. Ist es gesetzt, verlangt die App ein gemeinsames Passwort.
-- Die Daten liegen in `instance/ausgaben.db` (eigene Datenbank per `DATABASE=/pfad/zur.db`).
+Danach ist die App im Heimnetz unter `http://<IP-der-VM>:8000` erreichbar. Es gibt kein Passwort: Die Startseite fragt nur, welches Konto geöffnet wird, und oben links lässt sich umschalten. Die App ist deshalb nur für das Heimnetz gedacht und darf nicht ins Internet freigegeben werden.
+- Die Daten liegen in `instance/gemeinschaft/ausgaben.db` (eigene Datenbank per `DATABASE=/pfad/zur.db`).
 - Der Flask-Entwicklungsserver reicht für zwei Personen im Heimnetz. Für Dauerbetrieb
   eignet sich z. B. `.venv/bin/pip install gunicorn` und
   `.venv/bin/gunicorn -b 0.0.0.0:8000 app:app`.
@@ -36,7 +34,6 @@ After=network.target
 
 [Service]
 WorkingDirectory=/home/ocr/ki-test/ausgaben
-Environment=APP_PASSWORD=dein-passwort
 ExecStart=/home/ocr/ki-test/ausgaben/.venv/bin/gunicorn -b 0.0.0.0:8000 app:app
 Restart=on-failure
 User=ocr

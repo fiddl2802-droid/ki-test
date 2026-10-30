@@ -52,15 +52,15 @@ DEFAULT_CATEGORIES = [
     ("Sonstige Einnahmen", "income", "#65a30d"),
     ("Umbuchung / Sparen", "transfer", "#94a3b8"),
     ("Wohnen & Miete", "expense", "#2563eb"),
-    ("Hauskredit", "expense", "#1e40af"),
+    ("Hauskredit", "expense", "#1e3a8a"),
     ("Haus & Garten", "expense", "#a16207"),
     ("Strom & Gas", "expense", "#0891b2"),
-    ("Internet & Handy", "expense", "#7c3aed"),
+    ("Internet & Handy", "expense", "#a78bfa"),
     ("Versicherungen", "expense", "#4f46e5"),
     ("Lebensmittel", "expense", "#ea580c"),
-    ("Restaurant & Café", "expense", "#d97706"),
+    ("Restaurant & Café", "expense", "#facc15"),
     ("Mobilität & Auto", "expense", "#0d9488"),
-    ("Shopping", "expense", "#db2777"),
+    ("Shopping", "expense", "#f472b6"),
     ("Gesundheit", "expense", "#dc2626"),
     ("Freizeit & Reisen", "expense", "#9333ea"),
     ("Abos", "expense", "#be185d"),
@@ -93,10 +93,8 @@ DEFAULT_RULES = {
 def create_app() -> Flask:
     app = Flask(__name__, instance_path=str(BASE_DIR / "instance"))
     Path(app.instance_path).mkdir(exist_ok=True)
-    app.config["DATABASE"] = os.environ.get(
-        "DATABASE", str(Path(app.instance_path) / "ausgaben.db"))
     app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
-    app.config["APP_PASSWORD"] = os.environ.get("APP_PASSWORD", "")
+    app.config["KONTEN"] = konten_config(Path(app.instance_path))
     app.config["SECRET_KEY"] = load_secret_key(Path(app.instance_path) / "secret_key")
     app.permanent_session_lifetime = timedelta(days=30)
 
@@ -106,13 +104,31 @@ def create_app() -> Flask:
         if db is not None:
             db.close()
 
-    with app.app_context():
-        init_db()
+    for konto in app.config["KONTEN"].values():
+        Path(konto["db"]).parent.mkdir(exist_ok=True)
+        db = connect(konto["db"])
+        init_db(db)
+        db.close()
 
     register_filters(app)
     register_security(app)
+    register_context(app)
     register_routes(app)
     return app
+
+
+def konten_config(instance: Path) -> dict:
+    """Die Konten dieser Instanz: je Konto eine Datenbank. Ohne Passwort, nur im Heimnetz."""
+    return {
+        "gemeinschaft": {
+            "name": "Gemeinschaftskonto",
+            "db": os.environ.get("DATABASE", str(instance / "gemeinschaft" / "ausgaben.db")),
+        },
+        "single": {
+            "name": "Single-Konto",
+            "db": os.environ.get("DATABASE_SINGLE", str(instance / "single" / "ausgaben.db")),
+        },
+    }
 
 
 def load_secret_key(path: Path) -> str:
@@ -124,16 +140,27 @@ def load_secret_key(path: Path) -> str:
     return path.read_text().strip()
 
 
+def connect(path: str) -> sqlite3.Connection:
+    db = sqlite3.connect(path)
+    db.row_factory = sqlite3.Row
+    db.execute("PRAGMA foreign_keys = ON")
+    return db
+
+
+def aktives_konto() -> str:
+    """Konto der Sitzung; ist keines gewählt oder freigeschaltet, nimmt es das erste freigeschaltete."""
+    freigeschaltet = session.get("konten", [])
+    gewaehlt = session.get("konto")
+    return gewaehlt if gewaehlt in freigeschaltet else freigeschaltet[0]
+
+
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
-        g.db = sqlite3.connect(current_app.config["DATABASE"])
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
+        g.db = connect(current_app.config["KONTEN"][aktives_konto()]["db"])
     return g.db
 
 
-def init_db() -> None:
-    db = get_db()
+def init_db(db: sqlite3.Connection) -> None:
     db.executescript(SCHEMA)
     if "amount_cents" not in {r["name"] for r in db.execute("PRAGMA table_info(rules)")}:
         db.execute("ALTER TABLE rules ADD COLUMN amount_cents INTEGER")
@@ -213,9 +240,21 @@ def register_security(app: Flask) -> None:
             sent = request.form.get("csrf", "")
             if not secrets.compare_digest(sent, session.get("csrf", "")):
                 abort(400, "Ungültiges Formular-Token, bitte Seite neu laden.")
-        needs_login = app.config["APP_PASSWORD"] and not session.get("auth")
-        if needs_login and request.endpoint not in ("login", "static"):
+        if request.endpoint not in ("login", "static") and not session.get("konten"):
             return redirect(url_for("login"))
+
+
+def register_context(app: Flask) -> None:
+    @app.context_processor
+    def konto_context():
+        if not session.get("konten"):
+            return {}
+        konto = aktives_konto()
+        return {
+            "konto": konto,
+            "konto_name": app.config["KONTEN"][konto]["name"],
+            "konten": [(key, app.config["KONTEN"][key]["name"]) for key in session["konten"]],
+        }
 
 
 def drill_link(period: str, month: str | None = None):
@@ -229,18 +268,27 @@ def register_routes(app: Flask) -> None:
     @app.route("/login", methods=["GET", "POST"])
     def login():
         if request.method == "POST":
-            password = request.form.get("password", "")
-            if secrets.compare_digest(password, app.config["APP_PASSWORD"]):
-                session.permanent = True
-                session["auth"] = True
-                return redirect(url_for("dashboard"))
-            flash("Falsches Passwort.", "error")
-        return render_template("login.html")
+            konto = request.form.get("konto", "")
+            if konto not in app.config["KONTEN"]:
+                abort(400)
+            session.permanent = True
+            session["konten"] = list(app.config["KONTEN"])
+            session["konto"] = konto
+            return redirect(url_for("dashboard"))
+        return render_template("login.html", auswahl=app.config["KONTEN"])
 
     @app.post("/logout")
     def logout():
         session.clear()
         return redirect(url_for("login"))
+
+    @app.post("/konto")
+    def set_konto():
+        konto = request.form.get("konto", "")
+        if konto not in session.get("konten", []):
+            abort(403)
+        session["konto"] = konto
+        return redirect(url_for("dashboard"))
 
     @app.route("/")
     def index():
@@ -249,9 +297,9 @@ def register_routes(app: Flask) -> None:
     @app.route("/dashboard")
     def dashboard():
         db = get_db()
-        period = request.args.get("period", "last12")
         day = get_month_start(db)
-        months = reports.month_range(period, day=day)
+        period = reports.normalize_period(request.args.get("period", "last12"))
+        months = reports.months_for(db, period, day)
         start, end = reports.bounds(months, day)
         monthly = reports.monthly(db, months, start, end, day)
         expense_cats = reports.by_category(db, start, end)
@@ -265,26 +313,26 @@ def register_routes(app: Flask) -> None:
             cat["avg"] = round(cat["total"] / len(months))
 
         euros = lambda cents: round(cents / 100, 2)  # noqa: E731
+        daily = reports.is_month(period)
+        buckets = reports.day_buckets(start, end) if daily else months
+        month_labels = {m: f"{MONTH_NAMES[int(m[5:]) - 1]} {m[2:4]}" for m in months}
         chart = {
-            "labels": [f"{MONTH_NAMES[int(m[5:]) - 1]} {m[2:4]}" for m in months],
-            "income": [euros(r["income"]) for r in monthly],
-            "expense": [euros(r["expense"]) for r in monthly],
-            "saldo": [euros(r["saldo"]) for r in monthly],
-            "categories": {
-                "labels": [c["name"] for c in expense_cats],
-                "values": [euros(c["total"]) for c in expense_cats],
-                "colors": [c["color"] for c in expense_cats],
-            },
+            "daily": daily,
+            "labels": ([f"{int(b[8:])}.{int(b[5:7])}." for b in buckets] if daily
+                       else [month_labels[m] for m in months]),
+            "series": reports.chart_series(db, start, end, buckets, daily, day),
             "payees": {
                 "labels": [p["name"] for p in payees],
                 "values": [euros(p["total"]) for p in payees],
             },
         }
+        all_months = reports.available_months(db, day)
+        month_options = [(m, f"{MONTH_NAMES[int(m[5:]) - 1]} {m[:4]}") for m in all_months]
         return render_template(
             "dashboard.html", period=period, years=reports.available_years(db, day),
             month_start=day, summary=summary, expense_cats=expense_cats, income_cats=income_cats,
-            payees=payees, monthly=list(reversed(monthly)), month_labels=dict(zip(months, chart["labels"])),
-            link=drill_link(period), chart=chart,
+            payees=payees, monthly=list(reversed(monthly)), month_labels=month_labels,
+            month_options=month_options, link=drill_link(period), chart=chart,
             has_data=any(r["income"] or r["expense"] for r in monthly),
         )
 
@@ -292,9 +340,9 @@ def register_routes(app: Flask) -> None:
     def dashboard_drill():
         """HTML-Schnipsel zum Aufklappen: Monat -> Kategorie -> Empfänger -> Buchung."""
         db = get_db()
-        period = request.args.get("period", "last12")
         day = get_month_start(db)
-        months = reports.month_range(period, day=day)
+        period = reports.normalize_period(request.args.get("period", "last12"))
+        months = reports.months_for(db, period, day)
         month = request.args.get("month")
         if month is not None:
             if month not in months:

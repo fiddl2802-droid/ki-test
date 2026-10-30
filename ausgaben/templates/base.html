@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Ausgaben{% endblock %} – Gemeinschaftskonto</title>
+<title>{% block title %}Ausgaben{% endblock %}{% if konto_name %} – {{ konto_name }}{% endif %}</title>
 <style>
   :root {
     --bg: #f5f6f8; --card: #fff; --text: #1e293b; --muted: #64748b; --line: #e2e8f0;
@@ -23,7 +23,8 @@
   header { background: var(--card); border-bottom: 1px solid var(--line); }
   nav { max-width: 1200px; margin: 0 auto; padding: .6rem 1rem; display: flex;
         gap: 1.2rem; align-items: center; flex-wrap: wrap; }
-  nav strong { margin-right: auto; }
+  nav strong, nav .konto { margin-right: auto; }
+  nav .konto select { font-weight: 600; }
   nav a { color: var(--muted); text-decoration: none; font-weight: 500; }
   nav a:hover, nav a.active { color: var(--accent); }
   main { max-width: 1200px; margin: 0 auto; padding: 1rem; }
@@ -62,12 +63,21 @@
 <body>
 <header>
   <nav>
-    <strong>Gemeinschaftskonto</strong>
+    {% if konten and konten | length > 1 %}
+    <form method="post" action="{{ url_for('set_konto') }}" class="inline konto">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <select name="konto" onchange="this.form.submit()" aria-label="Konto wählen">
+        {% for key, name in konten %}<option value="{{ key }}" {{ 'selected' if key == konto }}>{{ name }}</option>{% endfor %}
+      </select>
+    </form>
+    {% else %}
+    <strong>{{ konto_name or 'Ausgaben' }}</strong>
+    {% endif %}
     <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Auswertung</a>
     <a href="{{ url_for('transactions') }}" class="{{ 'active' if request.endpoint == 'transactions' }}">Buchungen</a>
     <a href="{{ url_for('import_csv') }}" class="{{ 'active' if request.endpoint == 'import_csv' }}">Import</a>
     <a href="{{ url_for('settings') }}" class="{{ 'active' if request.endpoint == 'settings' }}">Einstellungen</a>
-    {% if config.APP_PASSWORD %}
+    {% if konten %}
     <form method="post" action="{{ url_for('logout') }}" class="inline">
       <input type="hidden" name="csrf" value="{{ csrf_token() }}">
       <button class="ghost">Abmelden</button>
