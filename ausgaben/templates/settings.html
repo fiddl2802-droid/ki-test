@@ -3,15 +3,34 @@
 {% block content %}
 <h1>Einstellungen</h1>
 
+<div class="card" style="margin-bottom:1rem">
+  <h2>Haushaltsmonat</h2>
+  <p class="muted">Banküberweisungen kommen oft um den Monatswechsel, mal am Letzten, mal am Ersten.
+     Damit die Auswertung dadurch nicht schwankt, beginnt ein Monat am eingestellten Tag.
+     Beispiel „5“: Buchungen vom 5.01. bis 4.02. zählen zum Januar.
+     Mit „1“ gilt der normale Kalendermonat.</p>
+  <form method="post" action="{{ url_for('set_month_start') }}" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label>Monat beginnt am
+      <input type="number" name="day" min="1" max="28" value="{{ month_start }}" style="width:5rem">.
+    </label>
+    <button>Speichern</button>
+  </form>
+</div>
+
 <div class="grid two">
   <div class="card">
     <h2>Regeln</h2>
     <p class="muted">Enthält Empfänger oder Verwendungszweck den Suchtext, wird die Buchung
        automatisch dieser Kategorie zugeordnet. Manuell gesetzte Kategorien werden nie überschrieben.
-       Regeln für Einnahme-Kategorien gelten nur für Eingänge, Regeln für Ausgabe-Kategorien nur für Abgänge.</p>
+       Regeln für Einnahme-Kategorien gelten nur für Eingänge, Regeln für Ausgabe-Kategorien nur für Abgänge.
+       Mit einem Betrag gilt eine Regel nur bei genau diesem Betrag. Es gewinnt die zuerst angelegte
+       passende Regel, genaue Regeln mit Betrag legst du also vor allgemeinen an.</p>
     <form method="post" action="{{ url_for('add_rule') }}" class="row">
       <input type="hidden" name="csrf" value="{{ csrf_token() }}">
       <input name="pattern" placeholder="Suchtext, z. B. REWE" required>
+      <input name="amount" placeholder="Betrag (optional)" size="14"
+             title="Regel gilt nur bei genau diesem Betrag, z. B. 1.100,00">
       <select name="category_id" required>
         {% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
       </select>
@@ -22,10 +41,12 @@
       <button class="ghost">Regeln jetzt auf unkategorisierte Buchungen anwenden</button>
     </form>
     <div class="scroll"><table>
-      <tr><th>Suchtext</th><th>Kategorie</th><th></th></tr>
+      <tr><th>Suchtext</th><th class="num">Betrag</th><th>Kategorie</th><th></th></tr>
       {% for r in rules %}
       <tr>
-        <td>{{ r.pattern }}</td><td>{{ r.category }}</td>
+        <td>{{ r.pattern }}</td>
+        <td class="num">{{ r.amount_cents | eur if r.amount_cents is not none else '' }}</td>
+        <td>{{ r.category }}</td>
         <td class="num">
           <form method="post" action="{{ url_for('delete_rule', rule_id=r.id) }}" class="inline">
             <input type="hidden" name="csrf" value="{{ csrf_token() }}">

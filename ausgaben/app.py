@@ -26,7 +26,12 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE TABLE IF NOT EXISTS rules (
     id INTEGER PRIMARY KEY,
     pattern TEXT NOT NULL,
-    category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE
+    category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    amount_cents INTEGER
+);
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY,
@@ -43,6 +48,7 @@ CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(booking_date);
 DEFAULT_CATEGORIES = [
     ("Gehalt", "income", "#16a34a"),
     ("Einzahlung Partner", "income", "#0f766e"),
+    ("Sonderzahlung Partner", "income", "#0ea5e9"),
     ("Sonstige Einnahmen", "income", "#65a30d"),
     ("Umbuchung / Sparen", "transfer", "#94a3b8"),
     ("Wohnen & Miete", "expense", "#2563eb"),
@@ -129,6 +135,8 @@ def get_db() -> sqlite3.Connection:
 def init_db() -> None:
     db = get_db()
     db.executescript(SCHEMA)
+    if "amount_cents" not in {r["name"] for r in db.execute("PRAGMA table_info(rules)")}:
+        db.execute("ALTER TABLE rules ADD COLUMN amount_cents INTEGER")
     if db.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
         db.executemany("INSERT INTO categories (name, kind, color) VALUES (?, ?, ?)",
                        DEFAULT_CATEGORIES)
@@ -140,14 +148,22 @@ def init_db() -> None:
     db.commit()
 
 
+def get_month_start(db: sqlite3.Connection) -> int:
+    """Tag, an dem ein Haushaltsmonat beginnt (1 = Kalendermonat)."""
+    row = db.execute("SELECT value FROM settings WHERE key = 'month_start_day'").fetchone()
+    return int(row["value"]) if row else 1
+
+
 def apply_rules(db: sqlite3.Connection) -> int:
     """Kategorisiert nur Buchungen ohne Kategorie; manuelle Zuordnungen bleiben.
 
     Regeln für Einnahme-Kategorien greifen nur bei Eingängen, Regeln für
-    Ausgabe-Kategorien nur bei Abgängen, Umbuchungen bei beiden.
+    Ausgabe-Kategorien nur bei Abgängen, Umbuchungen bei beiden. Hat eine Regel
+    einen Betrag, greift sie nur bei genau diesem Betrag (Vorzeichen egal).
+    Es gewinnt die erste passende Regel, also zuerst die genauen Regeln anlegen.
     """
     rules = db.execute(
-        """SELECT r.pattern, r.category_id, c.kind FROM rules r
+        """SELECT r.pattern, r.category_id, r.amount_cents, c.kind FROM rules r
            JOIN categories c ON c.id = r.category_id ORDER BY r.id"""
     ).fetchall()
     if not rules:
@@ -160,6 +176,8 @@ def apply_rules(db: sqlite3.Connection) -> int:
             if rule["kind"] == "income" and row["amount_cents"] <= 0:
                 continue
             if rule["kind"] == "expense" and row["amount_cents"] >= 0:
+                continue
+            if rule["amount_cents"] is not None and abs(row["amount_cents"]) != rule["amount_cents"]:
                 continue
             if rule["pattern"].lower() in haystack:
                 updates.append((rule["category_id"], row["id"]))
@@ -200,6 +218,13 @@ def register_security(app: Flask) -> None:
             return redirect(url_for("login"))
 
 
+def drill_link(period: str, month: str | None = None):
+    """Baut die Adresse eines Aufklapp-Schnipsels; Zeitraum und Monat sind vorbelegt."""
+    def link(**kwargs):
+        return url_for("dashboard_drill", **{"period": period, "month": month, **kwargs})
+    return link
+
+
 def register_routes(app: Flask) -> None:
     @app.route("/login", methods=["GET", "POST"])
     def login():
@@ -225,9 +250,10 @@ def register_routes(app: Flask) -> None:
     def dashboard():
         db = get_db()
         period = request.args.get("period", "last12")
-        months = reports.month_range(period)
-        start, end = reports.bounds(months)
-        monthly = reports.monthly(db, months, start, end)
+        day = get_month_start(db)
+        months = reports.month_range(period, day=day)
+        start, end = reports.bounds(months, day)
+        monthly = reports.monthly(db, months, start, end, day)
         expense_cats = reports.by_category(db, start, end)
         income_cats = reports.by_category(db, start, end, income=True)
         payees = reports.top_payees(db, start, end)
@@ -255,10 +281,43 @@ def register_routes(app: Flask) -> None:
             },
         }
         return render_template(
-            "dashboard.html", period=period, years=reports.available_years(db),
-            summary=summary, expense_cats=expense_cats, income_cats=income_cats,
-            chart=chart, has_data=any(r["income"] or r["expense"] for r in monthly),
+            "dashboard.html", period=period, years=reports.available_years(db, day),
+            month_start=day, summary=summary, expense_cats=expense_cats, income_cats=income_cats,
+            payees=payees, monthly=list(reversed(monthly)), month_labels=dict(zip(months, chart["labels"])),
+            link=drill_link(period), chart=chart,
+            has_data=any(r["income"] or r["expense"] for r in monthly),
         )
+
+    @app.route("/dashboard/drill")
+    def dashboard_drill():
+        """HTML-Schnipsel zum Aufklappen: Monat -> Kategorie -> Empfänger -> Buchung."""
+        db = get_db()
+        period = request.args.get("period", "last12")
+        day = get_month_start(db)
+        months = reports.month_range(period, day=day)
+        month = request.args.get("month")
+        if month is not None:
+            if month not in months:
+                abort(400)
+            months = [month]
+        start, end = reports.bounds(months, day)
+        level = request.args.get("level", "")
+        income = request.args.get("dir") == "in"
+        cat = request.args.get("cat")
+        if cat is not None and cat != "none" and not cat.isdigit():
+            abort(400)
+        payee = request.args.get("payee")
+        ctx = {"level": level, "link": drill_link(period, month)}
+        if level == "month":
+            ctx["out"] = reports.by_category(db, start, end)
+            ctx["inc"] = reports.by_category(db, start, end, income=True)
+        elif level == "payees":
+            ctx["payees"] = reports.payees_in(db, start, end, income, cat)
+        elif level == "bookings":
+            ctx["rows"] = reports.bookings_in(db, start, end, income, cat, payee)
+        else:
+            abort(400)
+        return render_template("drill.html", **ctx)
 
     @app.route("/transactions")
     def transactions():
@@ -333,10 +392,24 @@ def register_routes(app: Flask) -> None:
         db = get_db()
         categories = db.execute("SELECT * FROM categories ORDER BY kind, name").fetchall()
         rules = db.execute(
-            """SELECT r.id, r.pattern, c.name AS category FROM rules r
+            """SELECT r.id, r.pattern, r.amount_cents, c.name AS category FROM rules r
                JOIN categories c ON c.id = r.category_id ORDER BY c.name, r.pattern"""
         ).fetchall()
-        return render_template("settings.html", categories=categories, rules=rules)
+        return render_template("settings.html", categories=categories, rules=rules,
+                               month_start=get_month_start(db))
+
+    @app.post("/settings/month-start")
+    def set_month_start():
+        day = request.form.get("day", type=int)
+        if day is None or not 1 <= day <= 28:
+            flash("Der Monatswechsel-Tag muss zwischen 1 und 28 liegen.", "error")
+        else:
+            get_db().execute(
+                "INSERT INTO settings (key, value) VALUES ('month_start_day', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (str(day),))
+            get_db().commit()
+            flash(f"Haushaltsmonat beginnt jetzt am {day}.", "ok")
+        return redirect(url_for("settings"))
 
     @app.post("/settings/categories")
     def add_category():
@@ -365,11 +438,18 @@ def register_routes(app: Flask) -> None:
     def add_rule():
         pattern = request.form.get("pattern", "").strip()
         category_id = request.form.get("category_id", type=int)
+        amount_text = request.form.get("amount", "").strip()
+        try:
+            amount = abs(importer.parse_amount(amount_text)) if amount_text else None
+        except ValueError:
+            flash("Der Betrag ist nicht lesbar, zum Beispiel 1.100,00.", "error")
+            return redirect(url_for("settings"))
         if not pattern or category_id is None:
             flash("Suchtext und Kategorie angeben.", "error")
         else:
-            get_db().execute("INSERT INTO rules (pattern, category_id) VALUES (?, ?)",
-                             (pattern, category_id))
+            get_db().execute(
+                "INSERT INTO rules (pattern, category_id, amount_cents) VALUES (?, ?, ?)",
+                (pattern, category_id, amount))
             get_db().commit()
         return redirect(url_for("settings"))
 

@@ -1,0 +1,14 @@
+{% from "_drill.html" import node, bookings %}
+{% if level == "month" %}
+  {% if out %}<div class="grp">Ausgaben</div>
+    {% for c in out %}{{ node(c.name, c.total, link(level='payees', dir='out', cat=c.cat_id), c.color) }}{% endfor %}{% endif %}
+  {% if inc %}<div class="grp">Einnahmen</div>
+    {% for c in inc %}{{ node(c.name, c.total, link(level='payees', dir='in', cat=c.cat_id), c.color, good=true) }}{% endfor %}{% endif %}
+  {% if not out and not inc %}<div class="muted">Keine Buchungen.</div>{% endif %}
+{% elif level == "payees" %}
+  {% for p in payees %}
+    {{ node(p.name, p.total, link(level='bookings', dir=request.args.get('dir'), cat=request.args.get('cat'), payee=p.name), count=p.n, good=request.args.get('dir') == 'in') }}
+  {% else %}<div class="muted">Keine Buchungen.</div>{% endfor %}
+{% else %}
+  {{ bookings(rows) }}
+{% endif %}

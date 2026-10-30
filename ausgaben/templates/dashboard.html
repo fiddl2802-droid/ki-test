@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_drill.html" import node %}
 {% block title %}Auswertung{% endblock %}
 {% block content %}
 <form method="get" class="row">
@@ -10,6 +11,11 @@
     {% endfor %}
   </select>
 </form>
+
+{% if month_start > 1 %}
+  <p class="muted" style="margin-top:0">Haushaltsmonate: ein Monat läuft vom {{ month_start }}. bis zum
+     {{ month_start - 1 }}. des Folgemonats (änderbar unter <a href="{{ url_for('settings') }}">Einstellungen</a>).</p>
+{% endif %}
 
 {% if not has_data %}
   <div class="card">
@@ -43,39 +49,83 @@
   </div>
 </div>
 
+<p class="muted" style="margin:0 0 .5rem">Alle Listen lassen sich aufklappen: bis zur einzelnen Buchung.</p>
 <div class="grid two">
   <div class="card">
     <h2>Ausgaben je Kategorie</h2>
-    <div class="scroll"><table>
-      <tr><th>Kategorie</th><th class="num">Summe</th><th class="num">Ø / Monat</th><th class="num">Anteil</th></tr>
-      {% for c in expense_cats %}
-      <tr>
-        <td><span class="dot" style="background:{{ c.color }}"></span>{{ c.name }}</td>
-        <td class="num">{{ c.total | eur }}</td>
-        <td class="num">{{ c.avg | eur }}</td>
-        <td class="num">{{ ('%.1f' | format(c.share)) | replace('.', ',') }} %</td>
-      </tr>
-      {% endfor %}
-    </table></div>
+    {% for c in expense_cats %}
+      {{ node(c.name, c.total, link(level='payees', dir='out', cat=c.cat_id), c.color, avg=c.avg, share=c.share) }}
+    {% endfor %}
   </div>
   <div class="card">
     <h2>Einnahmen je Kategorie</h2>
-    <div class="scroll"><table>
-      <tr><th>Kategorie</th><th class="num">Summe</th></tr>
-      {% for c in income_cats %}
-      <tr>
-        <td><span class="dot" style="background:{{ c.color }}"></span>{{ c.name }}</td>
-        <td class="num">{{ c.total | eur }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="2" class="muted">Keine Einnahmen im Zeitraum.</td></tr>
-      {% endfor %}
-    </table></div>
+    {% for c in income_cats %}
+      {{ node(c.name, c.total, link(level='payees', dir='in', cat=c.cat_id), c.color, good=true) }}
+    {% else %}
+      <div class="muted">Keine Einnahmen im Zeitraum.</div>
+    {% endfor %}
   </div>
 </div>
 
+<div class="grid two">
+  <div class="card">
+    <h2>Monate</h2>
+    {% for m in monthly %}
+    <details class="drill" data-src="{{ link(level='month', month=m.month) }}">
+      <summary>
+        <span class="lbl">{{ month_labels[m.month] }}</span>
+        <span class="amt good">{{ m.income | eur }}</span>
+        <span class="amt bad">-{{ m.expense | eur }}</span>
+        <span class="amt {{ 'good' if m.saldo >= 0 else 'bad' }}">{{ m.saldo | eur }}</span>
+      </summary>
+      <div class="drill-body muted">Lädt …</div>
+    </details>
+    {% endfor %}
+    <p class="muted" style="margin-bottom:0">Spalten: Einnahmen, Ausgaben, Saldo.</p>
+  </div>
+  <div class="card">
+    <h2>Größte Empfänger</h2>
+    {% for p in payees %}
+      {{ node(p.name, p.total, link(level='bookings', dir='out', payee=p.name)) }}
+    {% endfor %}
+  </div>
+</div>
+
+<style>
+  details.drill > summary { display: flex; gap: .6rem; align-items: baseline; cursor: pointer;
+    padding: .4rem .2rem; border-bottom: 1px solid var(--line); list-style: none; }
+  details.drill > summary::-webkit-details-marker { display: none; }
+  details.drill > summary::before { content: "▸"; color: var(--muted); width: .8rem; flex: none; }
+  details.drill[open] > summary::before { content: "▾"; }
+  details.drill > summary:hover { background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+  .drill .lbl { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .drill .amt { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .drill-body { margin-left: 1rem; padding-left: .6rem; border-left: 2px solid var(--line); }
+  .drill-body .grp { margin: .6rem 0 .1rem; font-size: .8rem; color: var(--muted); text-transform: uppercase; }
+  .bk { display: grid; grid-template-columns: 5.5rem 1fr auto; gap: .6rem; padding: .35rem .2rem;
+        border-bottom: 1px dashed var(--line); font-size: .9rem; }
+  .bk .purpose { display: block; max-width: none; }
+</style>
+
 <script src="{{ url_for('static', filename='chart.umd.min.js') }}"></script>
 <script>
+  // Aufgeklappte Listen laden ihren Inhalt beim ersten Öffnen nach.
+  document.addEventListener('toggle', async e => {
+    const d = e.target;
+    if (!d.matches || !d.matches('details.drill') || !d.open || d.dataset.loaded) return;
+    d.dataset.loaded = '1';
+    const body = d.querySelector(':scope > .drill-body');
+    try {
+      const res = await fetch(d.dataset.src, {credentials: 'same-origin'});
+      if (!res.ok) throw new Error(res.status);
+      body.classList.remove('muted');
+      body.innerHTML = await res.text();
+    } catch (err) {
+      delete d.dataset.loaded;
+      body.textContent = 'Konnte nicht geladen werden. Bitte noch einmal aufklappen.';
+    }
+  }, true);
+
   const data = {{ chart | tojson }};
   const css = getComputedStyle(document.documentElement);
   const text = css.getPropertyValue('--muted').trim();

@@ -1,0 +1,27 @@
+{# Bausteine für das Aufklappen im Dashboard; der Inhalt wird beim Öffnen nachgeladen. #}
+{% macro node(label, total, src, color=none, count=none, avg=none, share=none, good=false) %}
+<details class="drill" data-src="{{ src }}">
+  <summary>
+    <span class="lbl">{% if color %}<span class="dot" style="background:{{ color }}"></span>{% endif %}{{ label or '(ohne Empfänger)' }}
+      {% if count %}<span class="muted">· {{ count }}×</span>{% endif %}</span>
+    {% if avg is not none %}<span class="amt muted">Ø {{ avg | eur }}</span>{% endif %}
+    {% if share is not none %}<span class="amt muted">{{ ('%.1f' | format(share)) | replace('.', ',') }} %</span>{% endif %}
+    <span class="amt {{ 'good' if good }}">{{ total | eur }}</span>
+  </summary>
+  <div class="drill-body muted">Lädt …</div>
+</details>
+{% endmacro %}
+
+{% macro bookings(rows, show_category=false) %}
+{% for b in rows %}
+<div class="bk">
+  <span class="muted">{{ b.booking_date | datum }}</span>
+  <span><b>{{ b.payee or '(ohne Empfänger)' }}</b>
+    {% if show_category %}<span class="muted">· {{ b.category }}</span>{% endif %}
+    <span class="purpose">{{ b.purpose }}</span></span>
+  <span class="amt {{ 'good' if b.amount_cents > 0 }}">{{ b.amount_cents | eur }}</span>
+</div>
+{% else %}
+<div class="muted">Keine Buchungen.</div>
+{% endfor %}
+{% endmacro %}
